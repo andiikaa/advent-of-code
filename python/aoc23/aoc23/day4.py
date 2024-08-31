@@ -4,9 +4,9 @@ data = read_line_split("resources/day4-in.txt")
 
 games = []
 for card in data:
-    lr = card.split(":")[1].split("|")
-    wins = list(map(lambda v: int(v.strip()), filter(lambda v: len(v.strip()) != 0, lr[0].split(" "))))
-    my = list(map(lambda v: int(v.strip()), filter(lambda v: len(v.strip()) != 0, lr[1].split(" "))))
+    l, r = card.split(":")[1].split("|")
+    wins = list(map(lambda v: int(v.strip()), filter(lambda v: len(v.strip()) != 0, l.split(" "))))
+    my = list(map(lambda v: int(v.strip()), filter(lambda v: len(v.strip()) != 0, r.split(" "))))
     games.append((wins, my))
 
 score = []
