@@ -18,6 +18,13 @@ type Rock struct {
 	shape []Point
 }
 
+type Cycle struct {
+	height    int
+	rockIndex int
+	jetIndex  int
+	hit       int
+}
+
 var rockShapes = []Rock{
 	{shape: []Point{{0, 0}, {1, 0}, {2, 0}, {3, 0}}},         // -
 	{shape: []Point{{1, 0}, {0, 1}, {1, 1}, {2, 1}, {1, 2}}}, // +
@@ -46,6 +53,8 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 	jetIndex := 0
 	chamberWidth := 7
 	rockPositions := make(map[Point]struct{})
+	cycles := make(map[[14]int]Cycle)
+
 	maxHeight := 0
 
 	for i := 0; i < numRocks; i++ {
@@ -54,7 +63,7 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 		if i == 0 {
 			offset = 3
 		}
-		if i%1000000 == 0 {
+		if i%10000 == 0 {
 			fmt.Println("Processing rock", i)
 		}
 		//printPos(rockPositions, chamberWidth)
@@ -94,20 +103,80 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 			}
 		}
 
-		truncate(rockPositions)
+		jumps, heightDiff, jetDiff := cyclesCheck(rockPositions, cycles, maxHeight, i, numRocks, jetIndex)
+		i += jumps
+		maxHeight += heightDiff
+		jetIndex += jetDiff
+		//truncate(rockPositions)
 	}
 
 	return maxHeight + 1 // +1 to account for the height starting from 0
 }
 
-// only slightly optimizes the processing
-func truncate(points map[Point]struct{}) int {
-	// we expect that after this amount of rocks no one will reach the bottom
-	// so we clean up the map a bit
-	if len(points) < 10000 {
-		return 0
+// todo take the type of block into account + the jet?
+func cyclesCheck(points map[Point]struct{}, cycles map[[14]int]Cycle, height int, index int, numRocks int, jetIndex int) (int, int, int) {
+	cycleMax := 100
+	cycleCheck := cycleMax / 2
+
+	if len(points) < cycleMax {
+		return 0, 0, 0
 	}
 
+	// top pattern
+	top := [7]int{}
+	for p := range points {
+		if top[p.x] < p.y {
+			top[p.x] = p.y
+		}
+	}
+
+	min := math.MaxInt64
+	for i := 0; i < 7; i++ {
+		if top[i] < min {
+			min = top[i]
+		}
+	}
+
+	// normalize so that we have a "pattern"
+	for i := 0; i < 7; i++ {
+		top[i] = top[i] - min
+	}
+
+	// check at random position if the same spots are filled
+	lower := [7]int{}
+	for i := range lower {
+		if _, ok := points[Point{i, cycleCheck}]; ok {
+			lower[i] = 1
+		}
+	}
+
+	// top pattern + lower pattern
+	pattern := [14]int{}
+	copy(pattern[:7], top[:])
+	copy(pattern[7:14], lower[:])
+
+	if c, ok := cycles[pattern]; ok {
+		jumps := index - c.rockIndex
+		if jumps < 100 || (jumps+index) >= numRocks {
+			return 0, 0, 0
+		}
+		heightDiff := height - c.height
+		jetIndexDiff := jetIndex - c.jetIndex
+		for i, p := range top {
+			points[Point{i, p + heightDiff + min}] = struct{}{}
+		}
+
+		c.hit++
+		fmt.Println("Cycle found", pattern, "hits", c.hit)
+		truncate(points)
+		return jumps, heightDiff, jetIndexDiff
+	} else {
+		cycles[pattern] = Cycle{height: height, rockIndex: index, jetIndex: jetIndex, hit: 0}
+	}
+	return 0, 0, 0
+}
+
+func truncate(points map[Point]struct{}) int {
 	max := [7]int{}
 
 	for p := range points {
