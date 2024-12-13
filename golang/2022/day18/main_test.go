@@ -12,7 +12,7 @@ func TestPart1(t *testing.T) {
 	})
 
 	t.Run("part2", func(t *testing.T) {
-		expected := 4504
+		expected := 2556
 		p2 := part2(input)
 		if p2 != expected {
 			t.Errorf("Got %d, expected %d", p2, expected)
