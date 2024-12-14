@@ -51,11 +51,12 @@ func part2(in string) int {
 func simulateFallingRocks(jetPattern string, numRocks int) int {
 	jetPattern = strings.TrimSpace(jetPattern)
 	jetIndex := 0
-	chamberWidth := 7
+	colMax := [7]int{}
 	rockPositions := make(map[Point]struct{})
-	cycles := make(map[[14]int]Cycle)
+	cycles := make(map[[9]int]Cycle)
 
 	maxHeight := 0
+	cycleHight := 0
 
 	for i := 0; i < numRocks; i++ {
 		rock := rockShapes[i%len(rockShapes)]
@@ -63,23 +64,19 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 		if i == 0 {
 			offset = 3
 		}
-		if i%10000 == 0 {
-			fmt.Println("Processing rock", i)
-		}
-		//printPos(rockPositions, chamberWidth)
-		//fmt.Println()
-		rockPos := Point{2, maxHeight + offset}
+
+		rockPos := Point{2, cycleHight + offset}
 
 		for {
 			// Apply jet push
 			jet := jetPattern[jetIndex%len(jetPattern)]
 			jetIndex++
 			if jet == '>' {
-				if canMove(rock, rockPos, Point{1, 0}, rockPositions, chamberWidth) {
+				if canMove(rock, rockPos, Point{1, 0}, rockPositions) {
 					rockPos.x++
 				}
 			} else if jet == '<' {
-				if canMove(rock, rockPos, Point{-1, 0}, rockPositions, chamberWidth) {
+				if canMove(rock, rockPos, Point{-1, 0}, rockPositions) {
 					rockPos.x--
 				}
 			} else {
@@ -87,7 +84,7 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 			}
 
 			// Apply gravity
-			if canMove(rock, rockPos, Point{0, -1}, rockPositions, chamberWidth) {
+			if canMove(rock, rockPos, Point{0, -1}, rockPositions) {
 				rockPos.y--
 			} else {
 				break
@@ -98,82 +95,71 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 		for _, p := range rock.shape {
 			newPos := Point{rockPos.x + p.x, rockPos.y + p.y}
 			rockPositions[newPos] = struct{}{}
-			if newPos.y > maxHeight {
-				maxHeight = newPos.y
+
+			// the hightest in the cycle
+			if newPos.y > cycleHight {
+				cycleHight = newPos.y
+			}
+
+			// save the max postions for each column
+			if colMax[newPos.x] < newPos.y {
+				colMax[newPos.x] = newPos.y
 			}
 		}
 
-		jumps, heightDiff, jetDiff := cyclesCheck(rockPositions, cycles, maxHeight, i, numRocks, jetIndex)
-		i += jumps
-		maxHeight += heightDiff
-		jetIndex += jetDiff
-		//truncate(rockPositions)
-	}
+		//cycle check
+		pattern := [9]int{}
+		copy(pattern[:7], colMax[:])
+		min := math.MaxInt64
+		for _, v := range pattern[:7] {
+			if v < min {
+				min = v
+			}
+		}
 
-	return maxHeight + 1 // +1 to account for the height starting from 0
-}
+		// normalize so that we have a "pattern"
+		for i, v := range pattern[:7] {
+			pattern[i] = v - min
+		}
 
-// todo take the type of block into account + the jet?
-func cyclesCheck(points map[Point]struct{}, cycles map[[14]int]Cycle, height int, index int, numRocks int, jetIndex int) (int, int, int) {
-	cycleMax := 100
-	cycleCheck := cycleMax / 2
+		pattern[7] = (jetIndex - 1) % len(jetPattern)
+		pattern[8] = i % len(rockShapes)
 
-	if len(points) < cycleMax {
-		return 0, 0, 0
-	}
+		if c, ok := cycles[pattern]; ok {
+			c.hit++
+			rocksFallen := i - c.rockIndex
+			if rocksFallen+i < numRocks {
+				hDiff := cycleHight - c.height
+				cycleHight += hDiff
+				i += rocksFallen
+				fmt.Println("Cycle found", pattern, "hits", c.hit)
 
-	// top pattern
-	top := [7]int{}
-	for p := range points {
-		if top[p.x] < p.y {
-			top[p.x] = p.y
+				var keysToDelete []Point
+				for p := range rockPositions {
+					keysToDelete = append(keysToDelete, p)
+				}
+
+				for _, p := range keysToDelete {
+					delete(rockPositions, p)
+				}
+
+				for _, p := range keysToDelete {
+					rockPositions[Point{p.x, p.y + hDiff}] = struct{}{}
+				}
+
+				for i, v := range colMax {
+					colMax[i] = v + hDiff
+				}
+
+				truncate(rockPositions)
+
+			}
+		} else {
+			cycles[pattern] = Cycle{height: maxHeight, rockIndex: i, jetIndex: jetIndex, hit: 0}
 		}
 	}
 
-	min := math.MaxInt64
-	for i := 0; i < 7; i++ {
-		if top[i] < min {
-			min = top[i]
-		}
-	}
-
-	// normalize so that we have a "pattern"
-	for i := 0; i < 7; i++ {
-		top[i] = top[i] - min
-	}
-
-	// check at random position if the same spots are filled
-	lower := [7]int{}
-	for i := range lower {
-		if _, ok := points[Point{i, cycleCheck}]; ok {
-			lower[i] = 1
-		}
-	}
-
-	// top pattern + lower pattern
-	pattern := [14]int{}
-	copy(pattern[:7], top[:])
-	copy(pattern[7:14], lower[:])
-
-	if c, ok := cycles[pattern]; ok {
-		jumps := index - c.rockIndex
-		if jumps < 100 || (jumps+index) >= numRocks {
-			return 0, 0, 0
-		}
-		heightDiff := height - c.height
-		jetIndexDiff := jetIndex - c.jetIndex
-		for i, p := range top {
-			points[Point{i, p + heightDiff + min}] = struct{}{}
-		}
-
-		c.hit++
-		fmt.Println("Cycle found", pattern, "hits", c.hit)
-		truncate(points)
-		return jumps, heightDiff, jetIndexDiff
-	} else {
-		cycles[pattern] = Cycle{height: height, rockIndex: index, jetIndex: jetIndex, hit: 0}
-	}
-	return 0, 0, 0
+	return cycleHight + 1 // +1 to account for the height starting from 0
 }
 
 func truncate(points map[Point]struct{}) int {
@@ -200,25 +186,13 @@ func truncate(points map[Point]struct{}) int {
 		}
 	}
 
-	//fmt.Println("Truncating elements", min)
-
 	return min
 }
 
-func getMaxHeight(rockPositions map[Point]struct{}) int {
-	maxHeight := 0
-	for p := range rockPositions {
-		if p.y > maxHeight {
-			maxHeight = p.y
-		}
-	}
-	return maxHeight
-}
-
-func canMove(rock Rock, pos, delta Point, rockPositions map[Point]struct{}, chamberWidth int) bool {
+func canMove(rock Rock, pos, delta Point, rockPositions map[Point]struct{}) bool {
 	for _, p := range rock.shape {
 		newPos := Point{pos.x + p.x + delta.x, pos.y + p.y + delta.y}
-		if newPos.x < 0 || newPos.x >= chamberWidth || newPos.y < 0 {
+		if newPos.x < 0 || newPos.x >= 7 || newPos.y < 0 {
 			return false
 		}
 		if _, exists := rockPositions[newPos]; exists {
@@ -226,18 +200,4 @@ func canMove(rock Rock, pos, delta Point, rockPositions map[Point]struct{}, cham
 		}
 	}
 	return true
-}
-
-func printPos(positions map[Point]struct{}, chamberWidth int) {
-	maxHeight := getMaxHeight(positions)
-	for y := maxHeight; y >= 0; y-- {
-		for x := 0; x < chamberWidth; x++ {
-			if _, exists := positions[Point{x, y}]; exists {
-				fmt.Print("#")
-			} else {
-				fmt.Print(".")
-			}
-		}
-		fmt.Println()
-	}
 }
