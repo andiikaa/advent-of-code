@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"fmt"
 	"math"
 	"strings"
 )
@@ -55,18 +54,35 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 	rockPositions := make(map[Point]struct{})
 	cycles := make(map[[9]int]Cycle)
 
-	maxHeight := 0
 	cycleHight := 0
 
 	for i := 0; i < numRocks; i++ {
-		rock := rockShapes[i%len(rockShapes)]
+		cyclestart := cycleHight
+		rockNum := i % len(rockShapes)
+		rock := rockShapes[rockNum]
 		offset := 4
 		if i == 0 {
 			offset = 3
 		}
 
-		rockPos := Point{2, cycleHight + offset}
+		// cycle check
+		// 0-6 top positions normalized
+		// 7 rock shape
+		// 8 jet index
+		pattern := [9]int{}
+		dist := distances(colMax)
+		copy(pattern[:7], dist[:])
+		pattern[7] = rockNum
+		pattern[8] = jetIndex % len(jetPattern)
+		if c, exists := cycles[pattern]; exists {
+			c.hit++
+			cycles[pattern] = c
+			cycleHight += c.height
+			continue
+		}
 
+		// simulate rock falling
+		rockPos := Point{2, cycleHight + offset}
 		for {
 			// Apply jet push
 			jet := jetPattern[jetIndex%len(jetPattern)]
@@ -107,77 +123,41 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 			}
 		}
 
-		//cycle check
-		pattern := [9]int{}
-		copy(pattern[:7], colMax[:])
-		min := math.MaxInt64
-		for _, v := range pattern[:7] {
-			if v < min {
-				min = v
-			}
-		}
+		cycles[pattern] = Cycle{height: cycleHight - cyclestart}
 
-		// normalize so that we have a "pattern"
-		for i, v := range pattern[:7] {
-			pattern[i] = v - min
-		}
-
-		pattern[7] = (jetIndex - 1) % len(jetPattern)
-		pattern[8] = i % len(rockShapes)
-
-		if c, ok := cycles[pattern]; ok {
-			c.hit++
-			rocksFallen := i - c.rockIndex
-			if rocksFallen+i < numRocks {
-				hDiff := cycleHight - c.height
-				cycleHight += hDiff
-				i += rocksFallen
-				fmt.Println("Cycle found", pattern, "hits", c.hit)
-
-				var keysToDelete []Point
-				for p := range rockPositions {
-					keysToDelete = append(keysToDelete, p)
-				}
-
-				for _, p := range keysToDelete {
-					delete(rockPositions, p)
-				}
-
-				for _, p := range keysToDelete {
-					rockPositions[Point{p.x, p.y + hDiff}] = struct{}{}
-				}
-
-				for i, v := range colMax {
-					colMax[i] = v + hDiff
-				}
-
-				truncate(rockPositions)
-
-			}
-		} else {
-			cycles[pattern] = Cycle{height: maxHeight, rockIndex: i, jetIndex: jetIndex, hit: 0}
-		}
+		truncate(rockPositions, colMax)
 	}
 
 	return cycleHight + 1 // +1 to account for the height starting from 0
 }
 
-func truncate(points map[Point]struct{}) int {
-	max := [7]int{}
-
-	for p := range points {
-		if max[p.x] < p.y {
-			max[p.x] = p.y
+func distances(colMax [7]int) [7]int {
+	out := [7]int{}
+	min := math.MaxInt64
+	for _, v := range colMax {
+		if v < min {
+			min = v
 		}
 	}
+	// normalize so that we have a "pattern"
+	for i, v := range colMax {
+		out[i] = v - min
+	}
+	return out
+}
 
+func truncate(points map[Point]struct{}, colMax [7]int) int {
 	min := math.MaxInt64
 	for i := 0; i < 7; i++ {
-		if max[i] < min {
-			min = max[i]
+		if colMax[i] < min {
+			min = colMax[i]
 		}
 	}
 
+	// because we start with an offset end would remove too much
+	min = min - 4
+
+	// if the point is below the global min, remove it
 	if min < math.MaxInt64 {
 		for p := range points {
 			if p.y < min {
