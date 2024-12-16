@@ -14,6 +14,7 @@ var input string
 var example string
 
 type facing int
+type cellType int
 
 const (
 	// facing
@@ -21,6 +22,11 @@ const (
 	faceRight = facing(1)
 	faceDown  = facing(2)
 	faceLeft  = facing(3)
+
+	// type of cell
+	emptyCell = cellType(0)
+	wallCell  = cellType(1)
+	tileCell  = cellType(2)
 )
 
 func main() {
@@ -32,42 +38,72 @@ func part1() int {
 	// colMax := 16
 	in := strings.Split(example, "\n\n")
 	// '-1' for ' ', '0' for '.', (move) '1' for '#' (wall)
-	//boardMap := toArray(in[0])
+	boardMap := toArray(in[0])
 	// -1 for R, -2 for L, positive number for number of steps
 	path := parseMoves(in[1])
+	f := faceRight
 
 	// moves
 	for _, p := range path {
-		f := faceRight
+		col := 0
+		row := 0
 
 		if p == -1 {
 			// turn right
 			f = facing((f + 1) % 4)
-			fmt.Println(f)
 		} else if p == -2 {
 			// turn left
 			f = facing((f - 1) % 4)
-			fmt.Println(f)
 		} else {
 			// move forward
-			fmt.Println("move", p)
+			if f == faceUp {
+				row -= p
+			} else if f == faceRight {
+				for i := 0; i < p; i++ {
+					col++
+
+					// jump over empty cells
+					for {
+						if len(boardMap[row]) <= col {
+							col = 0
+						}
+						if boardMap[row][col] == emptyCell {
+							col++
+						} else {
+							break
+						}
+					}
+
+					if boardMap[row][col] == wallCell {
+						fmt.Println("hit wall at", row, col)
+					} else if boardMap[row][col] == tileCell {
+						fmt.Println("found tile at", row, col)
+					}
+				}
+			} else if f == faceDown {
+				row += p
+			} else if f == faceLeft {
+				col -= p
+			} else {
+				panic("invalid facing")
+			}
 		}
 	}
 	return 0
 }
 
-func toArray(board string) [][]int {
+func toArray(board string) [][]cellType {
 	row := strings.Split(board, "\n")
-	intBoard := [][]int{}
+	intBoard := [][]cellType{}
 	for _, b := range row {
-		e := []int{}
+		e := []cellType{}
 		for _, c := range b {
 			if c == '#' {
-				e = append(e, 1)
+				e = append(e, wallCell)
 			} else if c == '.' {
-				e = append(e, 0)
+				e = append(e, tileCell)
 			} else {
-				e = append(e, -1)
+				e = append(e, emptyCell)
 			}
 		}
 		intBoard = append(intBoard, e)
