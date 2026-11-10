@@ -2,12 +2,14 @@ package main
 
 import (
 	_ "embed"
-	"math"
 	"strings"
 )
 
 //go:embed input.txt
 var input string
+
+//go:embed example.txt
+var example string
 
 type Point struct {
 	x, y int
@@ -15,13 +17,6 @@ type Point struct {
 
 type Rock struct {
 	shape []Point
-}
-
-type Cycle struct {
-	height    int
-	rockIndex int
-	jetIndex  int
-	hit       int
 }
 
 var rockShapes = []Rock{
@@ -47,55 +42,65 @@ func part2(in string) int {
 	return simulateFallingRocks(in, 1_000_000_000_000)
 }
 
+// state identifies a moment between two rocks. If the same state is seen
+// twice, everything that follows repeats with the same period.
+type state struct {
+	rockNum  int
+	jetIndex int
+	profile  [7]int // depth of each column's top below the tower top
+}
+
+type seen struct {
+	rock   int // number of rocks dropped when the state was seen
+	height int
+}
+
+// simulateFallingRocks drops numRocks rocks and returns the tower height.
+// 10^12 rocks can't be simulated one by one, so once a state repeats, whole
+// periods are skipped arithmetically and only the remainder is simulated.
 func simulateFallingRocks(jetPattern string, numRocks int) int {
 	jetPattern = strings.TrimSpace(jetPattern)
 	jetIndex := 0
-	colMax := [7]int{}
+	top := -1 // y of the highest rock, -1 = floor only
+	colMax := [7]int{-1, -1, -1, -1, -1, -1, -1}
 	rockPositions := make(map[Point]struct{})
-	cycles := make(map[[9]int]Cycle)
-
-	cycleHight := 0
+	states := make(map[state]seen)
+	skipped := 0 // height added by skipping periods
 
 	for i := 0; i < numRocks; i++ {
-		cyclestart := cycleHight
 		rockNum := i % len(rockShapes)
+
+		if skipped == 0 {
+			st := state{rockNum: rockNum, jetIndex: jetIndex, profile: profile(colMax, top)}
+			if prev, ok := states[st]; ok {
+				period := i - prev.rock
+				periods := (numRocks - i) / period
+				skipped = periods * (top - prev.height)
+				i += periods * period
+				if i >= numRocks {
+					break
+				}
+			} else {
+				states[st] = seen{rock: i, height: top}
+			}
+		}
+
 		rock := rockShapes[rockNum]
-		offset := 4
-		if i == 0 {
-			offset = 3
-		}
-
-		// cycle check
-		// 0-6 top positions normalized
-		// 7 rock shape
-		// 8 jet index
-		pattern := [9]int{}
-		dist := distances(colMax)
-		copy(pattern[:7], dist[:])
-		pattern[7] = rockNum
-		pattern[8] = jetIndex % len(jetPattern)
-		if c, exists := cycles[pattern]; exists {
-			c.hit++
-			cycles[pattern] = c
-			cycleHight += c.height
-			continue
-		}
-
-		// simulate rock falling
-		rockPos := Point{2, cycleHight + offset}
+		rockPos := Point{2, top + 4}
 		for {
 			// Apply jet push
-			jet := jetPattern[jetIndex%len(jetPattern)]
-			jetIndex++
-			if jet == '>' {
+			jet := jetPattern[jetIndex]
+			jetIndex = (jetIndex + 1) % len(jetPattern)
+			switch jet {
+			case '>':
 				if canMove(rock, rockPos, Point{1, 0}, rockPositions) {
 					rockPos.x++
 				}
-			} else if jet == '<' {
+			case '<':
 				if canMove(rock, rockPos, Point{-1, 0}, rockPositions) {
 					rockPos.x--
 				}
-			} else {
+			default:
 				panic("invalid jet")
 			}
 
@@ -111,62 +116,42 @@ func simulateFallingRocks(jetPattern string, numRocks int) int {
 		for _, p := range rock.shape {
 			newPos := Point{rockPos.x + p.x, rockPos.y + p.y}
 			rockPositions[newPos] = struct{}{}
-
-			// the hightest in the cycle
-			if newPos.y > cycleHight {
-				cycleHight = newPos.y
-			}
-
-			// save the max postions for each column
-			if colMax[newPos.x] < newPos.y {
-				colMax[newPos.x] = newPos.y
-			}
+			top = max(top, newPos.y)
+			colMax[newPos.x] = max(colMax[newPos.x], newPos.y)
 		}
 
-		cycles[pattern] = Cycle{height: cycleHight - cyclestart}
-
-		truncate(rockPositions, colMax)
+		// keep the map small: rows far below the lowest column top can no
+		// longer be reached by a falling rock
+		if i%1000 == 0 {
+			truncate(rockPositions, colMax)
+		}
 	}
 
-	return cycleHight + 1 // +1 to account for the height starting from 0
+	return top + 1 + skipped
 }
 
-func distances(colMax [7]int) [7]int {
+// profile normalizes the column tops relative to the tower top, so the same
+// surface shape at different heights compares equal.
+func profile(colMax [7]int, top int) [7]int {
 	out := [7]int{}
-	min := math.MaxInt64
-	for _, v := range colMax {
-		if v < min {
-			min = v
-		}
-	}
-	// normalize so that we have a "pattern"
 	for i, v := range colMax {
-		out[i] = v - min
+		out[i] = top - v
 	}
 	return out
 }
 
-func truncate(points map[Point]struct{}, colMax [7]int) int {
-	min := math.MaxInt64
-	for i := 0; i < 7; i++ {
-		if colMax[i] < min {
-			min = colMax[i]
+func truncate(points map[Point]struct{}, colMax [7]int) {
+	low := colMax[0]
+	for _, v := range colMax {
+		low = min(low, v)
+	}
+	// margin for rocks that slide under overhangs
+	low -= 50
+	for p := range points {
+		if p.y < low {
+			delete(points, p)
 		}
 	}
-
-	// because we start with an offset end would remove too much
-	min = min - 4
-
-	// if the point is below the global min, remove it
-	if min < math.MaxInt64 {
-		for p := range points {
-			if p.y < min {
-				delete(points, p)
-			}
-		}
-	}
-
-	return min
 }
 
 func canMove(rock Rock, pos, delta Point, rockPositions map[Point]struct{}) bool {
